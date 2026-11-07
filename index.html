@@ -5,9 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>اطلب مشوارك</title>
 
-<!-- استدعاء مكتبة Supabase -->
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, sans-serif; touch-action: manipulation; }
 body { background: linear-gradient(135deg, #ff6b35 0%, #f7931e 100%); min-height: 100vh; direction: rtl; display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 16px; overflow-x: hidden; }
@@ -285,11 +282,9 @@ button:disabled { opacity: 0.6; cursor: not-allowed; }
 
 <script>
 // ==========================================
-// 1. إعدادات Supabase
+// 1. إعدادات الرابط (Cloudflare)
 // ==========================================
-const supabaseUrl = 'https://wfssycnigmacfzexlnsc.supabase.co';
-const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Indmc3N5Y25pZ21hY2Z6ZXhsbnNjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQwNzU2NjIsImV4cCI6MjEwOTY1MTY2Mn0.YIfajW3adM6cfFZEFDYn4OzK9rsAvUTnO8lgL3yMdzE';
-const supabase = supabase.createClient(supabaseUrl, supabaseKey);
+const API_URL = 'https://mashwark-app.atlobmashwark.workers.dev';
 
 let currentUser = null;
 let accountType = null;
@@ -321,7 +316,7 @@ function selectType(el) {
 }
 
 // ==========================================
-// تسجيل حساب جديد (Supabase)
+// تسجيل حساب جديد (Cloudflare)
 // ==========================================
 async function register() {
   const name = document.getElementById('regName').value.trim();
@@ -340,22 +335,15 @@ async function register() {
   document.getElementById('regBtn').textContent = 'جاري التسجيل...';
 
   try {
-    // التحقق من وجود الرقم
-    const { data: existing } = await supabase.from('users').select('phone').eq('phone', phone).single();
-    if (existing) throw new Error("هذا الرقم مسجل مسبقاً");
+    const response = await fetch(API_URL + '/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: Date.now().toString(), name, phone, password: pwd, accountType })
+    });
+    const data = await response.json();
+    if (data.error) throw new Error(data.error);
 
-    // إضافة المستخدم
-    const { data: newUser, error } = await supabase.from('users').insert([{
-      id: Date.now().toString(),
-      name: name, phone: phone, password: pwd,
-      accountType: accountType,
-      isDriver: accountType !== 'passenger',
-      isAvailable: false
-    }]).select().single();
-
-    if (error) throw error;
-
-    currentUser = newUser;
+    currentUser = { id: Date.now().toString(), name, phone, accountType, isAvailable: 0 };
     document.getElementById('regOk').textContent = '✅ تم إنشاء الحساب بنجاح!';
     document.getElementById('regOk').style.display = 'block';
     setTimeout(() => loadHome(), 1000);
@@ -367,7 +355,7 @@ async function register() {
 }
 
 // ==========================================
-// تسجيل الدخول (Supabase)
+// تسجيل الدخول (Cloudflare)
 // ==========================================
 async function login() {
   const phone = document.getElementById('loginPhone').value.trim();
@@ -381,10 +369,15 @@ async function login() {
   document.getElementById('loginBtn').textContent = 'جاري الدخول...';
 
   try {
-    const { data: user, error } = await supabase.from('users').select('*').eq('phone', phone).eq('password', pwd).single();
-    if (error || !user) throw new Error("رقم الجوال أو كلمة المرور غير صحيحة");
+    const response = await fetch(API_URL + '/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, password: pwd })
+    });
+    const data = await response.json();
+    if (!data.success) throw new Error(data.error);
 
-    currentUser = user;
+    currentUser = data.user;
     loadHome();
     document.getElementById('loginBtn').disabled = false;
     document.getElementById('loginBtn').textContent = 'دخول';
@@ -438,104 +431,18 @@ function showOptions() { document.getElementById('passengerView').classList.add(
 function backHome() { document.getElementById('passengerView').classList.remove('hidden'); document.getElementById('optionsView').classList.add('hidden'); document.getElementById('resultsView').classList.add('hidden'); loadHome(); }
 
 // ==========================================
-// الملف الشخصي
-// ==========================================
-async function openMyProfile() {
-  const { data: user } = await supabase.from('users').select('*').eq('id', currentUser.id).single();
-  if (user) currentUser = user;
-  loadProfileData(currentUser);
-}
-
-function loadProfileData(user) {
-  document.getElementById('profileUserName').textContent = user.name;
-  const labels = { passenger: 'زبون', motorcycle: 'صاحب دراجة', bus: 'باص دايو', truck: 'دينه نقل بضائع او عفش', trailer: 'قاطرة' };
-  document.getElementById('profileUserRole').textContent = labels[user.accountType] || 'زبون';
-  
-  const userImgDiv = document.getElementById('profileUserImg');
-  if (user.userImg) {
-    userImgDiv.innerHTML = `<img src="${user.userImg}">`;
-  } else { userImgDiv.innerHTML = `<span class="icon-placeholder">👤</span>`; }
-
-  show('profileView');
-}
-
-// ==========================================
-// البحث عن السائقين (Supabase)
+// البحث عن السائقين (Cloudflare)
 // ==========================================
 async function showOnlineDriversOnHome() {
   const box = document.getElementById('onlineDriversList'); 
   box.innerHTML = '<div class="spinner"></div>';
   
-  const { data: drivers } = await supabase.from('users').select('*').eq('isDriver', true).eq('isAvailable', true);
-    
-  box.innerHTML = '';
-  if (!drivers || drivers.length === 0) { 
-    box.innerHTML = '<p style="text-align:center;color:#999;padding:14px">لا يوجد سائقون متاحون الآن</p>'; 
-    return; 
-  }
-  
-  const labels = { motorcycle:'🏍️ دراجة', bus:'🚌 باص دايو', truck:'🚚 دينه نقل بضائع او عفش', trailer:'🚛 قاطرة' };
-  drivers.forEach(driver => {
-    if (driver.id === currentUser.id) return;
-    const card = document.createElement('div'); card.className = 'driver-card';
-    card.innerHTML = `
-      <div class="info">
-        <h4>👤 ${driver.name}</h4>
-        <p>${labels[driver.accountType]} - 🟢 متاح</p>
-      </div>
-      <button onclick="openChat('${driver.id}','${driver.name.replace(/'/g,'')}','${driver.phone}')">💬 محادثة</button>
-    `;
-    box.appendChild(card);
-  });
-}
-
-async function findDrivers(vehicleType) {
-  document.getElementById('optionsView').classList.add('hidden'); 
-  document.getElementById('resultsView').classList.remove('hidden');
-  const list = document.getElementById('driversList');
-  list.innerHTML = '<div class="spinner"></div><p style="text-align:center;color:#666">جاري البحث...</p>';
-  
-  const { data: drivers } = await supabase.from('users').select('*').eq('accountType', vehicleType).eq('isAvailable', true);
-    
-  if (!drivers || drivers.length === 0) { 
-    list.innerHTML = '<p style="text-align:center;color:#e74c3c;margin:20px 0">لا يوجد سائق متاح حالياً لهذا النوع 😔</p>'; 
-    return; 
-  }
-  
-  list.innerHTML = '';
-  drivers.forEach(driver => {
-    if (driver.id === currentUser.id) return;
-    const card = document.createElement('div'); card.className = 'driver-card';
-    card.innerHTML = `
-      <div class="info">
-        <h4>👤 ${driver.name}</h4>
-        <p>📍 متاح الآن</p>
-      </div>
-      <button onclick="openChat('${driver.id}','${driver.name.replace(/'/g,'')}','${driver.phone}')">💬 محادثة</button>
-    `;
-    list.appendChild(card);
-  });
+  // بما أننا لم نضف مسار السائقين في Cloudflare بعد، سنكتفي بعرض رسالة.
+  box.innerHTML = '<p style="text-align:center;color:#999;padding:14px">قيد التطوير...</p>';
 }
 
 // ==========================================
-// حالة السائق
-// ==========================================
-function updateAvailabilityUI(isAvail) {
-  document.getElementById('availText').textContent = isAvail ? '🟢 أنت متاح لاستقبال الطلبات' : '🔴 أنت غير متاح حالياً';
-  const btn = document.getElementById('toggleBtn');
-  btn.textContent = isAvail ? 'إيقاف الاستقبال' : 'تشغيل الاستقبال';
-  btn.style.background = isAvail ? 'linear-gradient(135deg,#e74c3c,#c0392b)' : 'linear-gradient(135deg,#27ae60,#2ecc71)';
-}
-
-async function toggleAvailability() {
-  const newState = !currentUser.isAvailable;
-  await supabase.from('users').update({ isAvailable: newState }).eq('id', currentUser.id);
-  currentUser.isAvailable = newState;
-  updateAvailabilityUI(newState);
-}
-
-// ==========================================
-// المحادثة (Supabase)
+// المحادثة (Cloudflare)
 // ==========================================
 function openChat(otherUserId, otherUserName, otherUserPhone) {
   if (!currentUser) return;
@@ -553,26 +460,20 @@ function openChat(otherUserId, otherUserName, otherUserPhone) {
 async function loadChatMessages() {
   if (!chatOtherId) return; 
   
-  const { data: msgs } = await supabase.from('messages').select('*').order('created_at', { ascending: true });
+  const response = await fetch(`${API_URL}/messages?senderId=${currentUser.id}&receiverId=${chatOtherId}`);
+  const msgs = await response.json();
   const box = document.getElementById('messages');
   box.innerHTML = '';
   
-  let hasMessages = false;
-  if (msgs) {
+  if (msgs && msgs.length > 0) {
     msgs.forEach(m => {
-      if ((m.senderId === currentUser.id && m.receiverId === chatOtherId) || 
-          (m.senderId === chatOtherId && m.receiverId === currentUser.id)) {
-        hasMessages = true;
-        const div = document.createElement('div');
-        div.className = 'message ' + (m.senderId === currentUser.id ? 'mine' : 'theirs');
-        div.textContent = m.text;
-        box.appendChild(div);
-      }
+      const div = document.createElement('div');
+      div.className = 'message ' + (m.senderId === currentUser.id ? 'mine' : 'theirs');
+      div.textContent = m.text;
+      box.appendChild(div);
     });
-  }
-
-  if (!hasMessages) { 
-    box.innerHTML = '<p style="text-align:center;color:#999;font-size:13px">ابدأ المحادثة...</p>'; 
+  } else {
+    box.innerHTML = '<p style="text-align:center;color:#999;font-size:13px">ابدأ المحادثة...</p>';
   }
   box.scrollTop = box.scrollHeight;
 }
@@ -583,11 +484,11 @@ async function sendMessage() {
   if (!text || !currentUser || !chatOtherId) return;
   input.value = '';
   
-  await supabase.from('messages').insert([{
-    senderId: currentUser.id, 
-    receiverId: chatOtherId, 
-    text: text
-  }]);
+  await fetch(API_URL + '/send', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ senderId: currentUser.id, receiverId: chatOtherId, text })
+  });
   
   loadChatMessages();
 }
@@ -604,4 +505,4 @@ function backFromChat() {
 show('welcomeScreen');
 </script>
 </body>
-</html>
+    </html>
